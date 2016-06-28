@@ -1,0 +1,9 @@
+{
+  "name": "peterChat",
+  "internalName": "peterCHat",
+  "version": "0.0.1",
+  "description": "chat for tradeo",
+  "dependencies": {
+    "hash-to-port": "1.0.0"
+  }
+}

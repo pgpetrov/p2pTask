@@ -6,6 +6,9 @@ const rl = readline.createInterface({
   output: process.stdout
 });
 
+const serverPort = 8124;
+var toPort = require('hash-to-port');
+
 var myName = process.argv[2]
   , trace =  process.argv[3] || 0
   , roomName = process.argv[4] || "room1"
@@ -17,23 +20,16 @@ var myName = process.argv[2]
   , isHost
   , mainServerSocket;
 
+const myPort = toPort(myName);
+
+console.log("myPort is "+myPort);
+
 var net = require('net')
 
 server = net.createServer((c) => {
-  let comingIp = c.remoteAddress.split(':')[3];
-  var comingFromServer = comingIp == serverIp;
-  if (trace) console.log(comingIp);
-  if(!comingFromServer) {
-    // we have new connection not coming from the server. Record it.
-    if (!peers[comingIp]) {
-      peers[comingIp] = {
-        clientSocket : c
-      };
-    }
-  } else {
-    // We will need this if we are host.
-    mainServerSocket = c;
-  }
+  let connectionIp = c.remoteAddress.split(':')[3];
+  var connectionPort = "";
+  var comingFromServer = false;
 
   // someone connected to us
   c.on('data', function(data){
@@ -46,13 +42,12 @@ server = net.createServer((c) => {
           if (comingFromServer) {
             var newGuestIp = data.split('|')[1];
             var newGuestName = data.split('|')[2];
+            var newGuestPort = data.split('|')[3];
             var guestSocket = new net.Socket();
-            //TODO newGusetIp invvalid
-            guestSocket.connect({port: 8125, host: newGuestIp}, function() {
+            guestSocket.connect({port: newGuestPort, host: newGuestIp}, function() {
               if (trace) console.log("inside connect -> " + newGuestIp);
 
               if (trace) console.log(newGuestIp);
-
 
               guestSocket.on('data', function(data){
                 data = data.toString();
@@ -69,23 +64,31 @@ server = net.createServer((c) => {
               });
 
               guestSocket.on('close', function(){
-                  if (trace) console.log("inside close -> " + newGuestIp);
-                  if (trace) console.log(Object.keys(peers));
-                 // peers[newGuestIp].name
-                 console.log("system> "+peers[newGuestIp].name+" disconnected");
-                 history.push("system> "+peers[newGuestIp].name+" disconnected");
-                 delete peers[newGuestIp];
-                 mainServerSocket.write("disconnected|" + newGuestIp + ";");
+                 if (trace) console.log("inside close -> " + newGuestIp);
+                 if (trace) console.log(Object.keys(peers));
+                 console.log("system> "+peers[newGuestIp+":"+newGuestPort].name+" disconnected");
+                 history.push("system> "+peers[newGuestIp+":"+newGuestPort].name+" disconnected");
+                 delete peers[newGuestIp+":"+newGuestPort];
+                 mainServerSocket.write("disconnected|" + newGuestIp + "|" + newGuestPort + ";");
+              });
+              // send IAM message to help the client distinguish the connection
+              guestSocket.write("IAM|client|" + myName + "|" + myPort + ";");
+              // send all peer ips till now. Probably we have to do it different way if we need names though.
+              let arrToSend = [];
+              Object.keys(peers).forEach((x, i) => {
+                arrToSend.push({
+                  ipPort : x,
+                  name : peers[x].name
+                });
               });
 
-              //send all peer ips till now. Probably we have to do it different way if we need names though.
-              guestSocket.write(("historyPeers|"+JSON.stringify(history) + "|" + JSON.stringify(Object.keys(peers)) + ";"), function(){
-                  peers[newGuestIp] = {
+              guestSocket.write(("historyPeers|"+JSON.stringify(history) + "|" + JSON.stringify(arrToSend) + ";"), function(){
+                  peers[newGuestIp + ":" + newGuestPort] = {
                     clientSocket : guestSocket,
                     name : newGuestName
                   };
-                  console.log("system> "+peers[newGuestIp].name+" connected");
-                  broadcast("system> "+peers[newGuestIp].name+" connected");
+                  console.log("system> "+peers[newGuestIp + ":" + newGuestPort].name+" connected");
+                  broadcast("system> "+peers[newGuestIp + ":" + newGuestPort].name+" connected");
               });
             });
           }
@@ -103,9 +106,18 @@ server = net.createServer((c) => {
             broadcast("system> "+myName+" is host");
           }
           break;
-        case "MYNAMEIS":
-          // Command from everyone stating his name.
-          peers[comingIp].name = data.split('|')[1];
+        case "IAM":
+          // Command from everyone stating his name and port.
+          comingFromServer = data.split('|')[1] == "server";
+          if (!comingFromServer) {
+            connectionPort = data.split('|')[3];
+            peers[connectionIp + ":" + connectionPort] = {
+              name : data.split('|')[2],
+              clientSocket : c
+            }
+          } else {
+            mainServerSocket = c;
+          }
           break;
         default:
           // Just chat.
@@ -119,20 +131,32 @@ server = net.createServer((c) => {
   });
 
   c.on('close', function(){
-    var name = peers[comingIp].name;
-    if (trace) console.log(name);;
-    if (peers[comingIp]) {
-     delete peers[comingIp];
+    if (trace) {
+      console.log("-------");
+      console.log(connectionIp+":"+connectionPort);
+      console.log(Object.keys(peers));
+      console.log("-------");
+    }
+
+    if (peers[connectionIp+":"+connectionPort]) {
+      var name = peers[connectionIp+":"+connectionPort].name;
+      if (trace) console.log(name);
+      delete peers[connectionIp+":"+connectionPort];
     }
     if (trace) console.log(name);
     if (trace) console.log("some server socket end");
     if (trace) console.log(Object.keys(peers).forEach(function(x,i){console.log(x + " -> " + peers[x].name);}));
     console.log("system> "+name+" disconnected");
-    broadcast("system> "+name+" disconnected");
+    history.push("system> "+name+" disconnected");
+
+    if (isHost) {
+      mainServerSocket.write("disconnected|" + connectionIp + "|" + connectionPort + ";");
+    }
+
   });
 });
 
-server.listen(8125, () => {
+server.listen(myPort, () => {
   console.log('server bound');
 });
 
@@ -161,6 +185,7 @@ var broadcast = function (msg){
   Object.keys(peers).forEach(function(key, idx) {
     peers[key].clientSocket.write(msg+";");
   });
+  if (trace) console.log(Object.keys(peers));
 }
 
 var populateAndPrintHistory = function(h){
@@ -168,9 +193,12 @@ var populateAndPrintHistory = function(h){
     history.forEach((x) => {console.log(x)});
 }
 
-var populateAndConnectToAllPeers = function(ipArray,  hostSocket) {
-  ipArray.forEach(function(x) {
-    peers[x] = {};
+var populateAndConnectToAllPeers = function(objArray,  hostSocket) {
+  objArray.forEach(function(x) {
+    // peers[x] = {};
+    peers[x.ipPort] = {
+      name : x.name
+    };
   });
   Object.keys(peers).forEach(function(x,i) {
     // Don't connect to host.
@@ -179,10 +207,12 @@ var populateAndConnectToAllPeers = function(ipArray,  hostSocket) {
     } else {
       let s = new net.Socket();
       if (trace) console.log("inside for -> " + x);
-      s.connect({port: 8125, host: x}, function() {
+      let thisHost = x.split(":")[0];
+      let thisPort = x.split(":")[1];
+      s.connect({port: thisPort, host: thisHost}, function() {
           if (trace) console.log("inside connect -> " + x);
           peers[x].clientSocket = s;
-          s.write("MYNAMEIS|"+myName);
+          s.write("IAM|client|"+myName + "|" + myPort + ";");
           s.on('data', function(data){
             data = data.toString();
             data.split(';').forEach(function(data) {
@@ -193,7 +223,6 @@ var populateAndConnectToAllPeers = function(ipArray,  hostSocket) {
             });
           });
           s.on('close', function(){
-            //peers[x].name
             console.log("system> "+peers[x].name+" disconnected");
             history.push("system> "+peers[x].name+" disconnected");
             delete peers[x];
@@ -206,7 +235,7 @@ var populateAndConnectToAllPeers = function(ipArray,  hostSocket) {
 
 var client = new net.Socket();
 //connect to server
-client.connect({port: 8124, host: serverIp}, function() {
+client.connect({port: serverPort, host: serverIp}, function() {
   // get response from the server.
   client.on('data', function(data) {
     data = data.toString();
@@ -217,11 +246,15 @@ client.connect({port: 8124, host: serverIp}, function() {
         case "host":
           console.log("system> " + myName + " is host");
           broadcast("system> " + myName + " is host");
+          isHost = true;
           break;
         case "guest":
-          //just save the hostip among the peers
-          peers[data.split('|')[2]] = {
-            name : data.split('|')[3]
+          let ip = data.split('|')[2];
+          let port = data.split('|')[4];
+          let name = data.split('|')[3];
+          //just save the hostip and name among the peers
+          peers[ip + ":" + port] = {
+            name : name
           };
           //we do nothing more here. Server will notify the host about us.
           break;
@@ -232,5 +265,5 @@ client.connect({port: 8124, host: serverIp}, function() {
     });
   });
   // Say we are new client. State name and room.
-  client.write("new|" + myName + "|" + roomName + ";");
+  client.write("new|" + myName + "|" + roomName + "|" + myPort +";");
 });

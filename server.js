@@ -21,29 +21,34 @@ const server = net.createServer((c) => {
             let clientName = data.split('|')[1];
             let clientRoom = data.split('|')[2];
             let guestIp = c.remoteAddress.split(':')[3];
+            let guestPort = data.split('|')[3];
+
             if (!rooms[clientRoom]) {
               //respond you are host now and send your ip. will be needed later. Closes the socket
-              c.write(("host|"+guestIp + ";"), function() {c.destroy()});
+              c.write(("host|"+guestIp + ";"), function() {c.end();c.destroy();});
 
               rooms[clientRoom] = {
                 name : clientName,
                 hostIp : guestIp,
+                hostPort : guestPort,
                 hostSocket : {},
                 roomGuests : []
               };
 
-              setupHostConnection(guestIp, clientName, clientRoom);
+              setupHostConnection(guestIp, clientName, clientRoom, guestPort);
 
             } else {
-
-              c.write("guest|" + guestIp + "|" + rooms[clientRoom].hostIp + "|" + rooms[clientRoom].name + ";");
-              console.log("pushing " + clientName + " with ip " + guestIp);
+              // SENDING PORT
+              c.write("guest|" + guestIp + "|" + rooms[clientRoom].hostIp + "|" + rooms[clientRoom].name + "|" + rooms[clientRoom].hostPort + ";");
+              console.log("pushing " + clientName + " with ip " + guestIp + " and port " + guestPort);
               //guest came for this room. Send him the host ip.
               rooms[clientRoom].roomGuests.push({
                 name : clientName,
-                guestIp : guestIp
+                guestIp : guestIp,
+                guestPort : guestPort
               });
-              rooms[clientRoom].hostSocket.write(("newGuest|" + guestIp + "|" + clientName + ";"), function(){c.end()});
+              // SENDING PORT
+              rooms[clientRoom].hostSocket.write(("newGuest|" + guestIp + "|" + clientName + "|" + guestPort +";"), function(){c.end();c.destroy();});
             }
           break;
         default:
@@ -56,14 +61,14 @@ const server = net.createServer((c) => {
 });
 
 // Function used when new host is chosen. Sets an event on close of that host to call self.
-var setupHostConnection = function(guestIp, clientName, clientRoom) {
+var setupHostConnection = function(guestIp, clientName, clientRoom, hostPort) {
 
   var clientToHost = new net.Socket();
-  clientToHost.connect({port: 8125, host: guestIp}, function() {
+  clientToHost.connect({port: hostPort, host: guestIp}, function() {
     console.log("connected to host");
     //update the host socket for that room
     rooms[clientRoom].hostSocket = clientToHost;
-
+    clientToHost.write("IAM|server;")
     //On host disconnect
     clientToHost.on('close', function() {
       console.log("OUCH host " + clientName + " for room " + clientRoom + " disconnected!");
@@ -73,17 +78,17 @@ var setupHostConnection = function(guestIp, clientName, clientRoom) {
         //get the first guest and promote
         rooms[clientRoom].name = rooms[clientRoom].roomGuests[0].name;
         rooms[clientRoom].hostIp = rooms[clientRoom].roomGuests[0].guestIp;
+        rooms[clientRoom].hostPort = rooms[clientRoom].roomGuests[0].guestPort;
         rooms[clientRoom].roomGuests.splice(0,1);
         console.log( rooms[clientRoom].name + " promoted to host for room " + clientRoom + "!");
 
         var client = new net.Socket();
 
-        client.connect({port: 8125, host: rooms[clientRoom].hostIp}, function() {
+        client.connect({port: rooms[clientRoom].hostPort, host: rooms[clientRoom].hostIp}, function() {
+          client.write("IAM|server;")
           // Tell first guest he is the Host now.
           client.write("BECOMINGHOST|"+rooms[clientRoom].hostIp + ";");
-
-          setupHostConnection(rooms[clientRoom].hostIp, rooms[clientRoom].name, clientRoom);
-          // client.on("data", handleHostLogic(client));
+          setupHostConnection(rooms[clientRoom].hostIp, rooms[clientRoom].name, clientRoom, rooms[clientRoom].hostPort);
         });
         rooms[clientRoom].hostSocket=client;
       } else {
@@ -102,8 +107,9 @@ var setupHostConnection = function(guestIp, clientName, clientRoom) {
           console.log("Host reports client disconnect: " + data);
           console.log(rooms[clientRoom].roomGuests);
           let removeIp = data.split('|')[1];
+          let removePort = data.split('|')[2];
           rooms[clientRoom].roomGuests.every(function(x,i){
-            if(x.guestIp == removeIp) {
+            if((x.guestIp == removeIp) && (x.guestPort == removePort)) {
               rooms[clientRoom].roomGuests.splice(i,1);
               return false;
             }
