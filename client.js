@@ -22,12 +22,12 @@ let mainServerSocket;
 
 const myPort = toPort(myName);
 
-console.log('myPort is ' + myPort);
+console.log(`myPort is ${myPort}`);
 
 const broadcast = function (msg) {
   history.push(msg);
   Object.keys(peers).forEach((key) => {
-    peers[key].clientSocket.write(msg + ';');
+    peers[key].clientSocket.write(`${msg};`);
   });
   if (trace) console.log(Object.keys(peers));
 };
@@ -56,7 +56,7 @@ const populateAndConnectToAllPeers = function (objArray, hostSocket) {
       s.connect({ port: thisPort, host: thisHost }, () => {
         if (trace) console.log('inside connect -> ' + x);
         peers[x].clientSocket = s;
-        s.write('IAM|client|' + myName + '|' + myPort + ';');
+        s.write(`IAM|client|${myName}|${myPort};`);
         s.on('data', (data) => {
           const myData = data.toString();
           myData.split(';').forEach((splitData) => {
@@ -67,8 +67,8 @@ const populateAndConnectToAllPeers = function (objArray, hostSocket) {
           });
         });
         s.on('close', () => {
-          console.log('system> ' + peers[x].name + ' disconnected');
-          history.push('system> ' + peers[x].name + ' disconnected');
+          console.log(`system> ${peers[x].name} disconnected`);
+          history.push(`system> ${peers[x].name} disconnected`);
           delete peers[x];
         });
       });
@@ -119,10 +119,10 @@ const server = net.createServer((c) => {
                 console.log('system> ' + peers[newGuestIp + ':' + newGuestPort].name + ' disconnected');
                 history.push('system> ' + peers[newGuestIp + ':' + newGuestPort].name + ' disconnected');
                 delete peers[newGuestIp+':' + newGuestPort];
-                mainServerSocket.write('disconnected|' + newGuestIp + '|' + newGuestPort + ';');
+                mainServerSocket.write(`disconnected|${newGuestIp}|${newGuestPort};`);
               });
               // send IAM message to help the client distinguish the connection
-              guestSocket.write('IAM|client|' + myName + '|' + myPort + ';');
+              guestSocket.write(`IAM|client|${myName}|${myPort};`);
               // send all peer ips till now. Probably we have to do it different way if we need names though.
               const arrToSend = [];
               Object.keys(peers).forEach((x) => {
@@ -132,7 +132,7 @@ const server = net.createServer((c) => {
                 });
               });
 
-              guestSocket.write(('historyPeers|' + JSON.stringify(history) + '|' + JSON.stringify(arrToSend) + ';'), () => {
+              guestSocket.write((`historyPeers|${JSON.stringify(history)}|${JSON.stringify(arrToSend)};`), () => {
                 peers[newGuestIp + ':' + newGuestPort] = {
                   clientSocket: guestSocket,
                   name: newGuestName,
@@ -154,8 +154,8 @@ const server = net.createServer((c) => {
           // Command from server that we are promote to host.
           if (comingFromServer) {
             isHost = true;
-            console.log('system> ' + myName + ' is host');
-            broadcast('system> ' + myName + ' is host');
+            console.log(`system> ${myName} is host`);
+            broadcast(`system> ${myName} is host`);
           }
           break;
         }
@@ -197,12 +197,12 @@ const server = net.createServer((c) => {
       if (trace) console.log(name);
       if (trace) console.log('some server socket end');
       if (trace) console.log(Object.keys(peers).forEach((x) => { console.log(x + ' -> ' + peers[x].name); }));
-      console.log('system> ' + name + ' disconnected');
-      history.push('system> ' + name + ' disconnected');
+      console.log(`system> ${name} disconnected`);
+      history.push(`system> ${name} disconnected`);
     }
 
     if (isHost) {
-      mainServerSocket.write('disconnected|' + connectionIp + '|' + connectionPort + ';');
+      mainServerSocket.write(`disconnected|${connectionIp}|${connectionPort};`);
     }
   });
 });
@@ -212,7 +212,7 @@ server.listen(myPort, () => {
 });
 
 server.on('error', (err) => {
-  console.log('server error ' + err);
+  console.log(`server error ${err}`);
   throw err;
 });
 
@@ -225,7 +225,7 @@ rl.on('line', (input) => {
     server.close();
     process.exit();
   } else {
-    broadcast(myName + ': ' + input);
+    broadcast(`${myName}: ${input}`);
   }
 });
 
@@ -239,8 +239,8 @@ client.connect({ port: serverPort, host: serverIp }, () => {
       const type = spitData.split('|')[0];
       switch (type) {
         case 'host': {
-          console.log('system> ' + myName + ' is host');
-          broadcast('system> ' + myName + ' is host');
+          console.log(`system> ${myName} is host`);
+          broadcast(`system> ${myName} is host`);
           isHost = true;
           break;
         }
@@ -262,5 +262,5 @@ client.connect({ port: serverPort, host: serverIp }, () => {
     });
   });
   // Say we are new client. State name and room.
-  client.write('new|' + myName + '|' + roomName + '|' + myPort + ';');
+  client.write(`new|${myName}|${roomName}|${myPort};`);
 });
